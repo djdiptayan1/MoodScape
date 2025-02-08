@@ -1,10 +1,3 @@
-//
-//  File.swift
-//  MoodScape
-//
-//  Created by Diptayan Jash on 25/01/25.
-//
-
 import Foundation
 import SwiftUI
 import Charts
@@ -21,27 +14,37 @@ struct WeeklyTrendsView: View {
         case year = "Y"
     }
 
-    var filteredData: [String: Int] {
-        let startDate = Calendar.current.date(byAdding: selectedRange.dateComponents, to: Date()) ?? Date()
-        let filteredMoods = moodDataManager.moods.filter { $0.timestamp >= startDate }
-        return Dictionary(grouping: filteredMoods, by: { $0.emoji }).mapValues { $0.count }
-    }
-
-    var mostUsedMood: (emoji: String, count: Int)? {
-        if let maxElement = filteredData.max(by: { $0.value < $1.value }) {
-            return (emoji: maxElement.key, count: maxElement.value)
-        }
-        return nil
-    }
-
-    var dateRange: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-
+    var aggregatedMoodData: [(date: Date, emoji: String, count: Int)] {
+        let moods = moodDataManager.moods
+        let calendar = Calendar.current
+        let dateComponents = selectedRange.dateComponents
         let endDate = Date()
-        let startDate = Calendar.current.date(byAdding: selectedRange.dateComponents, to: endDate) ?? Date()
+        let startDate = calendar.date(byAdding: dateComponents, to: endDate) ?? endDate
 
-        return "\(formatter.string(from: startDate)) - \(formatter.string(from: endDate))"
+        let filteredMoods = moods.filter { $0.timestamp >= startDate }
+
+        // Group moods by day, week, or month depending on time range
+        let groupedMoods: [Date: [Mood]] = Dictionary(grouping: filteredMoods) { moodEntry in
+            switch selectedRange {
+            case .day:
+                return calendar.startOfDay(for: moodEntry.timestamp)
+            case .week:
+                return calendar.dateInterval(of: .weekOfYear, for: moodEntry.timestamp)?.start ?? moodEntry.timestamp
+            case .month:
+                return calendar.dateInterval(of: .month, for: moodEntry.timestamp)?.start ?? moodEntry.timestamp
+            case .sixMonths, .year:
+                return calendar.dateInterval(of: .month, for: moodEntry.timestamp)?.start ?? moodEntry.timestamp
+            }
+        }
+
+        // Determine the most common mood for each grouped date
+        return groupedMoods.compactMap { (date, moodEntries) in
+            let moodCounts = Dictionary(grouping: moodEntries, by: { $0.emoji }).mapValues { $0.count }
+            if let mostFrequentMood = moodCounts.max(by: { $0.value < $1.value }) {
+                return (date: date, emoji: mostFrequentMood.key, count: mostFrequentMood.value)
+            }
+            return nil
+        }.sorted(by: { $0.date < $1.date })
     }
 
     var body: some View {
@@ -49,18 +52,22 @@ struct WeeklyTrendsView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     Picker("Time Range", selection: $selectedRange) {
-                        ForEach(TimeRange.allCases, id: \..self) { range in
+                        ForEach(TimeRange.allCases, id: \.self) { range in
                             Text(range.rawValue).tag(range)
                         }
                     }
                     .pickerStyle(SegmentedPickerStyle())
+                    .onChange(of: selectedRange) { _ in
+                        // Ensure the data updates when the picker value changes
+                        _ = aggregatedMoodData
+                    }
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("AVERAGE")
                             .font(.headline)
                             .foregroundColor(.gray)
 
-                        if let mood = mostUsedMood {
+                        if let mood = aggregatedMoodData.max(by: { $0.count < $1.count }) {
                             Text("\(mood.emoji) \(mood.count) times")
                                 .font(.title3)
                                 .fontWeight(.bold)
@@ -77,23 +84,27 @@ struct WeeklyTrendsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if filteredData.isEmpty {
+                    if aggregatedMoodData.isEmpty {
                         Text("No mood data for the selected range. Start logging!")
                             .font(.headline)
                             .padding()
                     } else {
-                        Chart(filteredData.sorted(by: { $0.key < $1.key }), id: \..key) { emoji, count in
+                        Chart(aggregatedMoodData, id: \.date) { moodData in
                             BarMark(
-                                x: .value("Mood", emoji),
-                                y: .value("Count", count)
+                                x: .value("Date", moodData.date, unit: .day),
+                                y: .value("Mood Count", moodData.count)
                             )
-                            .foregroundStyle(moodDataManager.getMoodColor(for: emoji))
+                            .foregroundStyle(moodDataManager.getMoodColor(for: moodData.emoji))
+                            .annotation(position: .top) {
+                                Text("\(moodData.count)")
+                                    .font(.caption)
+                                    .foregroundColor(.black)
+                            }
                         }
                         .frame(height: 300)
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(12)
-                        .shadow(radius: 5)
+                        .chartYAxis {
+                            AxisMarks(position: .leading)
+                        }
                     }
 
                     VStack(spacing: 10) {
@@ -132,6 +143,16 @@ struct WeeklyTrendsView: View {
                 .navigationTitle("Trends")
             }
         }
+    }
+
+    var dateRange: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+
+        let endDate = Date()
+        let startDate = Calendar.current.date(byAdding: selectedRange.dateComponents, to: endDate) ?? endDate
+
+        return "\(formatter.string(from: startDate)) - \(formatter.string(from: endDate))"
     }
 }
 

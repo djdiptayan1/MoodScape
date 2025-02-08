@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUICore
+
 class MoodDataManager: ObservableObject {
     @Published var moods: [Mood] = []
     @Published var streak: Int = 0
@@ -46,10 +47,12 @@ class MoodDataManager: ObservableObject {
     func saveStreak() {
         UserDefaults.standard.set(streak, forKey: streakKey)
     }
+
     func resetData() {
         moods.removeAll()
         streak = 0
         UserDefaults.standard.removeObject(forKey: moodsKey)
+        UserDefaults.standard.removeObject(forKey: streakKey)
     }
 
     func updateStreak() {
@@ -68,14 +71,11 @@ class MoodDataManager: ObservableObject {
         print("Last Mood Date: \(lastMoodDate)")
 
         if calendar.isDate(lastMoodDate, inSameDayAs: localToday) {
-            // Do nothing, already logged today
             print("Mood logged today, no change to streak.")
         } else if calendar.isDate(lastMoodDate, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: localToday)!) {
-            // Last mood was logged yesterday
             streak += 1
             print("Streak incremented: \(streak)")
         } else {
-            // Reset streak if the last mood was logged more than a day ago
             streak = 1
             print("Streak reset to 1.")
         }
